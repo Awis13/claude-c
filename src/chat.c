@@ -164,9 +164,11 @@ int chat_repl(const config_t *cfg) {
         g_interrupted = 0;
         int result;
         if (cfg->api_type == API_TYPE_ANTHROPIC) {
-            result = api_anthropic_chat(cfg, &messages, on_text, on_done, &cb_data);
+            result = api_anthropic_chat(cfg, &messages, on_text, on_done, &cb_data,
+                                        (volatile int *)&g_interrupted);
         } else {
-            result = api_openai_chat(cfg, &messages, on_text, on_done, &cb_data);
+            result = api_openai_chat(cfg, &messages, on_text, on_done, &cb_data,
+                                     (volatile int *)&g_interrupted);
         }
 
         if (result != 0 && !g_interrupted) {

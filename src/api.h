@@ -29,6 +29,9 @@ void message_list_init(message_list_t *list);
 void message_list_add(message_list_t *list, msg_role_t role, const char *content);
 void message_list_free(message_list_t *list);
 
+// конвертация роли в строку
+const char *role_to_str(msg_role_t role);
+
 // callback для стриминга текста (content или reasoning)
 typedef void (*text_callback_t)(const char *text, int is_reasoning, void *userdata);
 

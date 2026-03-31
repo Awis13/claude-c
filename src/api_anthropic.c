@@ -83,21 +83,12 @@ static void anthropic_stream_data(const char *data, size_t len, void *userdata) 
     sse_parser_feed(parser, data, len);
 }
 
-// конвертация роли в строку (без system — он идёт отдельным полем)
-static const char *role_to_str(msg_role_t role) {
-    switch (role) {
-    case MSG_ROLE_SYSTEM:    return "user";  // fallback, system не попадёт в messages
-    case MSG_ROLE_USER:      return "user";
-    case MSG_ROLE_ASSISTANT: return "assistant";
-    }
-    return "user";
-}
-
 int api_anthropic_chat(const config_t *cfg,
                        const message_list_t *messages,
                        text_callback_t on_text,
                        done_callback_t on_done,
-                       void *userdata) {
+                       void *userdata,
+                       volatile int *interrupt_flag) {
     // формируем URL
     char url[1024];
     snprintf(url, sizeof(url), "%s/v1/messages", cfg->endpoint);
@@ -131,9 +122,9 @@ int api_anthropic_chat(const config_t *cfg,
 
     if (!body) return -1;
 
-    // заголовки: x-api-key, anthropic-version, content-type
+    // заголовки: x-api-key, anthropic-version (Content-Type ставит http.c)
     char key_header[512];
-    const char *headers[4] = { NULL, NULL, NULL, NULL };
+    const char *headers[3] = { NULL, NULL, NULL };
     int h = 0;
 
     if (cfg->api_key[0] != '\0') {
@@ -141,7 +132,6 @@ int api_anthropic_chat(const config_t *cfg,
         headers[h++] = key_header;
     }
     headers[h++] = "anthropic-version: 2023-06-01";
-    headers[h++] = "content-type: application/json";
 
     // контекст для SSE парсера
     anthropic_ctx_t ctx = {
@@ -155,7 +145,8 @@ int api_anthropic_chat(const config_t *cfg,
     sse_parser_init(&parser, anthropic_sse_event, &ctx);
 
     // отправляем запрос
-    long status = http_post_stream(url, body, headers, anthropic_stream_data, &parser);
+    long status = http_post_stream(url, body, headers, anthropic_stream_data, &parser,
+                                   interrupt_flag);
     free(body);
 
     if (status == 0 || status != 200 || ctx.error) {

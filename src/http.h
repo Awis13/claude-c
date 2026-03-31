@@ -21,10 +21,12 @@ void http_cleanup(void);
 
 // POST с SSE стримингом — вызывает callback на каждый чанк данных
 // headers: NULL-terminated массив строк "Key: Value"
+// interrupt_flag: если не NULL и *interrupt_flag != 0 — прервать transfer
 // возвращает HTTP status code, 0 при ошибке
 long http_post_stream(const char *url, const char *body,
                       const char **headers,
-                      stream_callback_t callback, void *userdata);
+                      stream_callback_t callback, void *userdata,
+                      volatile int *interrupt_flag);
 
 // POST без стриминга — возвращает весь ответ
 // caller должен вызвать http_response_free()
