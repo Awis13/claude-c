@@ -4,6 +4,7 @@
 #include "http.h"
 #include "api_openai.h"
 #include "api_anthropic.h"
+#include "terminal.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,12 +59,13 @@ static void sigint_handler(int sig) {
 
 // ---------- callbacks для стриминга ----------
 
-// userdata для callbacks — strbuf для сбора ответа
+// userdata для callbacks — strbuf для сбора ответа + состояние терминала
 typedef struct {
     strbuf_t *sb;
+    term_state_t *ts;
 } chat_cb_data_t;
 
-// вывод текста + сбор в буфер
+// вывод текста + сбор в буфер (REPL — с markdown подсветкой)
 static void on_text(const char *text, int is_reasoning, void *userdata) {
     (void)is_reasoning;
     chat_cb_data_t *data = (chat_cb_data_t *)userdata;
@@ -71,14 +73,15 @@ static void on_text(const char *text, int is_reasoning, void *userdata) {
     // если пользователь нажал Ctrl+C — не печатаем
     if (g_interrupted) return;
 
-    printf("%s", text);
+    term_print_chunk(data->ts, text);
     fflush(stdout);
     strbuf_append(data->sb, text);
 }
 
-// завершение ответа
+// завершение ответа (REPL)
 static void on_done(void *userdata) {
-    (void)userdata;
+    chat_cb_data_t *data = (chat_cb_data_t *)userdata;
+    term_print_end(data->ts);
     printf("\n\n");
     fflush(stdout);
 }
@@ -96,13 +99,20 @@ static int is_exit_cmd(const char *input) {
 
 int chat_repl(const config_t *cfg) {
     // приветствие
-    printf("claude-c v0.1.0\n");
-    if (cfg->api_type == API_TYPE_ANTHROPIC) {
-        printf("модель: %s @ %s (Anthropic)\n", cfg->model, cfg->endpoint);
+    if (terminal_supports_color()) {
+        printf(ANSI_BOLD "claude-c" ANSI_RESET " v0.1.0\n");
     } else {
-        printf("модель: %s @ %s\n", cfg->model, cfg->endpoint);
+        printf("claude-c v0.1.0\n");
     }
-    printf("введите сообщение (exit для выхода)\n\n");
+    if (cfg->api_type == API_TYPE_ANTHROPIC) {
+        term_print_system("модель:");
+        printf("  %s @ %s (Anthropic)\n", cfg->model, cfg->endpoint);
+    } else {
+        term_print_system("модель:");
+        printf("  %s @ %s\n", cfg->model, cfg->endpoint);
+    }
+    term_print_system("введите сообщение (exit для выхода)");
+    printf("\n");
 
     // инициализация
     http_init();
@@ -124,7 +134,11 @@ int chat_repl(const config_t *cfg) {
     for (;;) {
         g_interrupted = 0;
 
-        char *line = readline("you> ");
+        // readline prompt с цветом (RL_PROMPT_START/END для корректного подсчёта ширины)
+        const char *prompt = terminal_supports_color()
+            ? "\001" ANSI_BOLD ANSI_GREEN "\002" "you>" "\001" ANSI_RESET "\002" " "
+            : "you> ";
+        char *line = readline(prompt);
 
         // EOF (Ctrl+D) → выход
         if (!line) {
@@ -155,11 +169,14 @@ int chat_repl(const config_t *cfg) {
         strbuf_t sb;
         strbuf_init(&sb);
 
-        chat_cb_data_t cb_data = { .sb = &sb };
+        // состояние markdown парсера для этого ответа
+        term_state_t ts;
+        term_state_init(&ts);
+
+        chat_cb_data_t cb_data = { .sb = &sb, .ts = &ts };
 
         // вывести маркер ассистента
-        printf("\033[1;32massistant>\033[0m ");
-        fflush(stdout);
+        term_print_assistant_label();
 
         // отправить запрос
         g_interrupted = 0;
@@ -173,7 +190,9 @@ int chat_repl(const config_t *cfg) {
         }
 
         if (result != 0 && !g_interrupted) {
-            fprintf(stderr, "\n\033[1;31mошибка запроса к API\033[0m\n\n");
+            fprintf(stderr, "\n");
+            term_print_error("ошибка запроса к API");
+            fprintf(stderr, "\n");
         }
 
         // сохранить ответ ассистента в историю (если что-то получили)
