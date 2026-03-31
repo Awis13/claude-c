@@ -5,26 +5,7 @@
 #include <stdlib.h>
 
 #include "config.h"
-#include "http.h"
-#include "api.h"
-#include "api_openai.h"
-#include "api_anthropic.h"
-
-// ---------- callbacks для стриминга ----------
-
-// вывод текста (content или reasoning)
-static void on_text(const char *text, int is_reasoning, void *userdata) {
-    (void)is_reasoning;
-    (void)userdata;
-    printf("%s", text);
-    fflush(stdout);
-}
-
-// завершение ответа
-static void on_done(void *userdata) {
-    (void)userdata;
-    printf("\n");
-}
+#include "chat.h"
 
 // ---------- main ----------
 
@@ -42,38 +23,11 @@ int main(int argc, char *argv[]) {
         return rc < 0 ? 1 : 0;
     }
 
-    // показать конфиг
-    config_dump(&cfg);
-
-    // тестовый стриминг (если не programmatic режим)
-    if (!cfg.programmatic) {
-        printf("\n--- тест стриминга ---\n");
-
-        http_init();
-
-        // формируем сообщения
-        message_list_t messages;
-        message_list_init(&messages);
-        message_list_add(&messages, MSG_ROLE_USER, "say hello in one word");
-
-        // отправляем запрос
-        int result;
-        if (cfg.api_type == API_TYPE_ANTHROPIC) {
-            printf("-> POST %s/v1/messages\n", cfg.endpoint);
-            printf("-> модель: %s (Anthropic)\n\n", cfg.model);
-            result = api_anthropic_chat(&cfg, &messages, on_text, on_done, NULL);
-        } else {
-            printf("-> POST %s/v1/chat/completions\n", cfg.endpoint);
-            printf("-> модель: %s\n\n", cfg.model);
-            result = api_openai_chat(&cfg, &messages, on_text, on_done, NULL);
-        }
-        if (result != 0) {
-            fprintf(stderr, "\nОшибка запроса к API\n");
-        }
-
-        message_list_free(&messages);
-        http_cleanup();
+    if (cfg.programmatic) {
+        printf("programmatic mode not implemented yet\n");
+        return 0;
     }
 
-    return 0;
+    // интерактивный REPL
+    return chat_repl(&cfg);
 }

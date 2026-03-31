@@ -4,6 +4,15 @@
 #include <string.h>
 #include "api.h"
 
+const char *role_to_str(msg_role_t role) {
+    switch (role) {
+    case MSG_ROLE_SYSTEM:    return "system";
+    case MSG_ROLE_USER:      return "user";
+    case MSG_ROLE_ASSISTANT: return "assistant";
+    }
+    return "user";
+}
+
 void message_list_init(message_list_t *list) {
     list->items = NULL;
     list->count = 0;

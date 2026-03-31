@@ -23,6 +23,7 @@ void http_cleanup(void) {
 typedef struct {
     stream_callback_t callback;
     void *userdata;
+    volatile int *interrupt_flag;
 } stream_ctx_t;
 
 // контекст для буферизованного ответа
@@ -35,9 +36,16 @@ typedef struct {
 // ---------- curl write callbacks ----------
 
 // callback для стриминга — передаёт данные напрямую в пользовательский callback
+// возвращает 0 при прерывании — curl прервёт transfer
 static size_t stream_write_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
     size_t total = size * nmemb;
     stream_ctx_t *ctx = (stream_ctx_t *)userdata;
+
+    // проверяем флаг прерывания — прекращаем запись
+    if (ctx->interrupt_flag && *ctx->interrupt_flag) {
+        return 0;
+    }
+
     ctx->callback(ptr, total, ctx->userdata);
     return total;
 }
@@ -68,6 +76,20 @@ static size_t buffer_write_cb(char *ptr, size_t size, size_t nmemb, void *userda
     return total;
 }
 
+// ---------- progress callback для прерывания ----------
+
+// progress callback — проверяет флаг прерывания, return 1 = abort curl
+static int progress_cb(void *clientp,
+                       curl_off_t dltotal, curl_off_t dlnow,
+                       curl_off_t ultotal, curl_off_t ulnow) {
+    (void)dltotal; (void)dlnow; (void)ultotal; (void)ulnow;
+    volatile int *flag = (volatile int *)clientp;
+    if (flag && *flag) {
+        return 1;  // прервать transfer
+    }
+    return 0;
+}
+
 // ---------- общая настройка curl ----------
 
 // настроить общие параметры curl handle
@@ -96,7 +118,8 @@ static struct curl_slist *setup_curl(CURL *curl, const char *url,
 
 long http_post_stream(const char *url, const char *body,
                       const char **headers,
-                      stream_callback_t callback, void *userdata) {
+                      stream_callback_t callback, void *userdata,
+                      volatile int *interrupt_flag) {
     CURL *curl = curl_easy_init();
     if (!curl) {
         fprintf(stderr, "http: не удалось создать curl handle\n");
@@ -108,15 +131,29 @@ long http_post_stream(const char *url, const char *body,
     // для стрима — без общего таймаута (может длиться долго)
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
 
-    // callback для данных
-    stream_ctx_t ctx = { .callback = callback, .userdata = userdata };
+    // callback для данных — прекращает запись при interrupt
+    stream_ctx_t ctx = {
+        .callback = callback,
+        .userdata = userdata,
+        .interrupt_flag = interrupt_flag
+    };
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, stream_write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
+
+    // progress callback — прерывает curl при interrupt
+    if (interrupt_flag) {
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_cb);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, (void *)interrupt_flag);
+    }
 
     CURLcode res = curl_easy_perform(curl);
 
     long status = 0;
-    if (res != CURLE_OK) {
+    if (res == CURLE_ABORTED_BY_CALLBACK) {
+        // прервано по Ctrl+C — не ошибка, получаем status если успели
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    } else if (res != CURLE_OK) {
         fprintf(stderr, "http: ошибка запроса: %s\n", curl_easy_strerror(res));
     } else {
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);

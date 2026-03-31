@@ -13,6 +13,7 @@ int api_anthropic_chat(const config_t *cfg,
                        const message_list_t *messages,
                        text_callback_t on_text,
                        done_callback_t on_done,
-                       void *userdata);
+                       void *userdata,
+                       volatile int *interrupt_flag);
 
 #endif // API_ANTHROPIC_H

@@ -71,21 +71,12 @@ static void openai_stream_data(const char *data, size_t len, void *userdata) {
     sse_parser_feed(parser, data, len);
 }
 
-// конвертация роли в строку
-static const char *role_to_str(msg_role_t role) {
-    switch (role) {
-    case MSG_ROLE_SYSTEM:    return "system";
-    case MSG_ROLE_USER:      return "user";
-    case MSG_ROLE_ASSISTANT: return "assistant";
-    }
-    return "user";
-}
-
 int api_openai_chat(const config_t *cfg,
                     const message_list_t *messages,
                     text_callback_t on_text,
                     done_callback_t on_done,
-                    void *userdata) {
+                    void *userdata,
+                    volatile int *interrupt_flag) {
     // формируем URL
     char url[1024];
     snprintf(url, sizeof(url), "%s/v1/chat/completions", cfg->endpoint);
@@ -139,7 +130,8 @@ int api_openai_chat(const config_t *cfg,
     sse_parser_init(&parser, openai_sse_event, &ctx);
 
     // отправляем запрос
-    long status = http_post_stream(url, body, headers, openai_stream_data, &parser);
+    long status = http_post_stream(url, body, headers, openai_stream_data, &parser,
+                                   interrupt_flag);
     free(body);
 
     if (status == 0 || status != 200 || ctx.error) {
