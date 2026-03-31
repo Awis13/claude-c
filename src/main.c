@@ -8,6 +8,7 @@
 #include "http.h"
 #include "api.h"
 #include "api_openai.h"
+#include "api_anthropic.h"
 
 // ---------- callbacks для стриминга ----------
 
@@ -56,10 +57,16 @@ int main(int argc, char *argv[]) {
         message_list_add(&messages, MSG_ROLE_USER, "say hello in one word");
 
         // отправляем запрос
-        printf("-> POST %s/v1/chat/completions\n", cfg.endpoint);
-        printf("-> модель: %s\n\n", cfg.model);
-
-        int result = api_openai_chat(&cfg, &messages, on_text, on_done, NULL);
+        int result;
+        if (cfg.api_type == API_TYPE_ANTHROPIC) {
+            printf("-> POST %s/v1/messages\n", cfg.endpoint);
+            printf("-> модель: %s (Anthropic)\n\n", cfg.model);
+            result = api_anthropic_chat(&cfg, &messages, on_text, on_done, NULL);
+        } else {
+            printf("-> POST %s/v1/chat/completions\n", cfg.endpoint);
+            printf("-> модель: %s\n\n", cfg.model);
+            result = api_openai_chat(&cfg, &messages, on_text, on_done, NULL);
+        }
         if (result != 0) {
             fprintf(stderr, "\nОшибка запроса к API\n");
         }
