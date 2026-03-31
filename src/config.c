@@ -28,6 +28,7 @@ void config_init(config_t *cfg) {
     cfg->max_tokens = DEFAULT_MAX_TOKENS;
     cfg->temperature = DEFAULT_TEMPERATURE;
     cfg->programmatic = 0;
+    cfg->prompt_text[0] = '\0';
 }
 
 // ---------- config_load_file ----------
@@ -133,7 +134,7 @@ static void print_usage(void) {
         "  --api-type TYPE     тип API: openai или anthropic (дефолт: openai)\n"
         "  --max-tokens N      лимит токенов (дефолт: %d)\n"
         "  --temperature T     температура (-1 = дефолт сервера)\n"
-        "  -p                  programmatic режим\n"
+        "  -p \"текст\"          programmatic режим (один запрос → stdout)\n"
         "  --help              показать справку\n"
         "  --version           показать версию\n"
         "\n"
@@ -173,7 +174,7 @@ int config_parse_args(config_t *cfg, int argc, char **argv) {
     optind = 1;
 
     int c;
-    while ((c = getopt_long(argc, argv, "p", long_opts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "p:", long_opts, NULL)) != -1) {
         switch (c) {
         case 'e':
             snprintf(cfg->endpoint, sizeof(cfg->endpoint), "%s", optarg);
@@ -195,6 +196,7 @@ int config_parse_args(config_t *cfg, int argc, char **argv) {
             break;
         case 'p':
             cfg->programmatic = 1;
+            snprintf(cfg->prompt_text, sizeof(cfg->prompt_text), "%s", optarg);
             break;
         case 'h':
             print_usage();

@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <unistd.h>
 
 // readline/libedit — macOS поставляет libedit под видом readline
 #include <editline/readline.h>
@@ -194,4 +195,119 @@ int chat_repl(const config_t *cfg) {
     http_cleanup();
 
     return exit_code;
+}
+
+// ---------- programmatic mode (-p) ----------
+
+// прочитать весь stdin в строку (caller должен free)
+static char *read_stdin_all(void) {
+    size_t cap = 4096;
+    size_t len = 0;
+    char *buf = malloc(cap);
+    if (!buf) return NULL;
+
+    ssize_t n;
+    while ((n = read(STDIN_FILENO, buf + len, cap - len - 1)) > 0) {
+        len += (size_t)n;
+        if (len + 1 >= cap) {
+            cap *= 2;
+            buf = realloc(buf, cap);
+            if (!buf) return NULL;
+        }
+    }
+    buf[len] = '\0';
+    return buf;
+}
+
+// callback-обёртка: отслеживает последний символ
+typedef struct {
+    int last_was_nl;
+} oneshot_data_t;
+
+static void on_text_oneshot_track(const char *text, int is_reasoning, void *userdata) {
+    oneshot_data_t *data = (oneshot_data_t *)userdata;
+    if (is_reasoning) return;
+    size_t len = strlen(text);
+    if (len > 0) {
+        data->last_was_nl = (text[len - 1] == '\n');
+    }
+    printf("%s", text);
+    fflush(stdout);
+}
+
+static void on_done_oneshot_track(void *userdata) {
+    oneshot_data_t *data = (oneshot_data_t *)userdata;
+    if (!data->last_was_nl) {
+        printf("\n");
+    }
+}
+
+int chat_oneshot(const config_t *cfg, const char *prompt) {
+    http_init();
+
+    // собрать итоговый промпт: текст + stdin (если pipe)
+    char *final_prompt = NULL;
+
+    if (!isatty(STDIN_FILENO)) {
+        // есть pipe — прочитать stdin
+        char *stdin_content = read_stdin_all();
+        if (stdin_content && stdin_content[0] != '\0') {
+            if (prompt[0] != '\0') {
+                // prompt + stdin
+                size_t plen = strlen(prompt);
+                size_t slen = strlen(stdin_content);
+                final_prompt = malloc(plen + 2 + slen + 1);
+                memcpy(final_prompt, prompt, plen);
+                final_prompt[plen] = '\n';
+                final_prompt[plen + 1] = '\n';
+                memcpy(final_prompt + plen + 2, stdin_content, slen);
+                final_prompt[plen + 2 + slen] = '\0';
+            } else {
+                // только stdin
+                final_prompt = stdin_content;
+                stdin_content = NULL;
+            }
+        }
+        free(stdin_content);
+    }
+
+    // если final_prompt не собрали — используем prompt как есть
+    if (!final_prompt) {
+        final_prompt = strdup(prompt);
+    }
+
+    if (!final_prompt || final_prompt[0] == '\0') {
+        fprintf(stderr, "ошибка: пустой промпт для -p режима\n");
+        free(final_prompt);
+        http_cleanup();
+        return 1;
+    }
+
+    // создать message list с одним user message
+    message_list_t messages;
+    message_list_init(&messages);
+    message_list_add(&messages, MSG_ROLE_USER, final_prompt);
+    free(final_prompt);
+
+    oneshot_data_t data = { .last_was_nl = 0 };
+
+    int result;
+    if (cfg->api_type == API_TYPE_ANTHROPIC) {
+        result = api_anthropic_chat(cfg, &messages,
+                                    on_text_oneshot_track, on_done_oneshot_track,
+                                    &data, NULL);
+    } else {
+        result = api_openai_chat(cfg, &messages,
+                                 on_text_oneshot_track, on_done_oneshot_track,
+                                 &data, NULL);
+    }
+
+    if (result != 0) {
+        fprintf(stderr, "ошибка запроса к API\n");
+    }
+
+    message_list_free(&messages);
+    http_cleanup();
+
+    return result;
 }
