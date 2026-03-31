@@ -30,10 +30,20 @@ static void on_sse_event(sse_event_type_t type, const char *data,
             if (first) {
                 cJSON *delta = cJSON_GetObjectItem(first, "delta");
                 if (delta) {
+                        // сначала content, потом reasoning (для thinking-моделей типа qwen3)
                     cJSON *content = cJSON_GetObjectItem(delta, "content");
-                    if (content && cJSON_IsString(content) && content->valuestring) {
+                    if (content && cJSON_IsString(content) &&
+                        content->valuestring && content->valuestring[0]) {
                         printf("%s", content->valuestring);
                         fflush(stdout);
+                    } else {
+                        // fallback: reasoning поле (qwen3.5 и подобные)
+                        cJSON *reasoning = cJSON_GetObjectItem(delta, "reasoning");
+                        if (reasoning && cJSON_IsString(reasoning) &&
+                            reasoning->valuestring && reasoning->valuestring[0]) {
+                            printf("%s", reasoning->valuestring);
+                            fflush(stdout);
+                        }
                     }
                 }
             }
@@ -67,7 +77,7 @@ static void test_stream(const config_t *cfg) {
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "model", cfg->model);
     cJSON_AddBoolToObject(root, "stream", 1);
-    cJSON_AddNumberToObject(root, "max_tokens", 50);
+    cJSON_AddNumberToObject(root, "max_tokens", cfg->max_tokens);
 
     cJSON *messages = cJSON_AddArrayToObject(root, "messages");
     cJSON *msg = cJSON_CreateObject();
