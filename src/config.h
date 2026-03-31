@@ -17,6 +17,7 @@ typedef struct {
     int max_tokens;         // лимит токенов (0 = дефолт сервера)
     double temperature;     // температура (-1 = дефолт сервера)
     int programmatic;       // -p режим
+    char prompt_text[8192]; // текст для -p режима
 } config_t;
 
 // заполнить дефолтами

@@ -24,8 +24,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (cfg.programmatic) {
-        printf("programmatic mode not implemented yet\n");
-        return 0;
+        return chat_oneshot(&cfg, cfg.prompt_text);
     }
 
     // интерактивный REPL
